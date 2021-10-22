@@ -1,16 +1,14 @@
 //Jnekinsfile for demo
 pipeline {
-    agent { label 'master' }
+    agent { label 'any' }
 	//options { skipDefaultCheckout false  }
     parameters {
         string(name: 'PHASE', defaultValue: 'BUILD', description: 'The stage to run this pipeline')
         string(name: 'TARGET_ENV', defaultValue: 'lab')
         string(name: 'CONTAINER_NAME', defaultValue: 'nodejs-front-end')
         string(name: 'NAME', defaultValue: 'nodejs-front-end')
-        string(name: 'GIT_REPO', defaultValue: 'https://chandra.sekhar.batte@innersource.accenture.com/scm/adiulxgz/nodejs-front-end.git')
+        string(name: 'GIT_REPO', defaultValue: 'https://github.com/Krishnabatte/nodejs-poc.git')
 		string(name: 'BRANCH_NAME', defaultValue: 'master')
-		string(name: 'CREDENTIAL_ID', defaultValue: 'Chandra-pipline-aditya')
-		string(name: 'IMAGE_BASE', defaultValue: 'adopdemointernal.azurecr.io/adopdemointernal')
     }
     
  environment { 
@@ -32,7 +30,6 @@ pipeline {
                branches: [[name: '*/${BRANCH_NAME}']],
                doGenerateSubmoduleConfigurations: false, 
                extensions: [], submoduleCfg: [], 
-               userRemoteConfigs: [[credentialsId: 'Chandra-pipline-aditya', 
                url: '${GIT_REPO}']]])
 		 }
      }
@@ -49,7 +46,7 @@ pipeline {
                  echo "Building docker image for front end "
                   sudo docker build -t $IMAGE_NAME:$VERSION .
                   echo " pushing the image azure repo"
-                  sudo docker login adopdemointernal.azurecr.io -u adopdemointernal -p Ihzyu2uBPq5bh4w=MpaNSSAM+h2cEkrL
+                  sudo docker login adopdemointernal.azurecr.io -u adopdemointernal -p xxxxxxxxxxxxxxxxx 
 		  sudo docker push $IMAGE_NAME:$VERSION
                   echo "Push complete!"
                   echo ""
@@ -107,7 +104,7 @@ pipeline {
            VERSION=`git rev-parse HEAD`
 		   echo $VERSION
            IMAGE_NAME="${IMAGE_BASE}/$NAME"
-		    sudo docker login adopdemointernal.azurecr.io -u adopdemointernal -p Ihzyu2uBPq5bh4w=MpaNSSAM+h2cEkrL
+		    sudo docker login adopdemointernal.azurecr.io -u adopdemointernal -p xxxxxxxxxxxxxxxxxxxxxxxx 
 		    if [[ $(kubectl get deployment  | grep "$CONTAINER_NAME" | cut -d' ' -f1) == $CONTAINER_NAME ]]; then
 		   	echo "This component has already been deployed. Starting rolling update to version $VERSION..."
 			sudo kubectl set image deployments $CONTAINER_NAME $CONTAINER_NAME=$IMAGE_NAME:$VERSION
