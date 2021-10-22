@@ -1,0 +1,147 @@
+//Jnekinsfile for demo
+pipeline {
+    agent { label 'master' }
+	//options { skipDefaultCheckout false  }
+    parameters {
+        string(name: 'PHASE', defaultValue: 'BUILD', description: 'The stage to run this pipeline')
+        string(name: 'TARGET_ENV', defaultValue: 'lab')
+        string(name: 'CONTAINER_NAME', defaultValue: 'nodejs-front-end')
+        string(name: 'NAME', defaultValue: 'nodejs-front-end')
+        string(name: 'GIT_REPO', defaultValue: 'https://chandra.sekhar.batte@innersource.accenture.com/scm/adiulxgz/nodejs-front-end.git')
+		string(name: 'BRANCH_NAME', defaultValue: 'master')
+		string(name: 'CREDENTIAL_ID', defaultValue: 'Chandra-pipline-aditya')
+		string(name: 'IMAGE_BASE', defaultValue: 'adopdemointernal.azurecr.io/adopdemointernal')
+    }
+    
+ environment { 
+        APPNAME = "JSON"
+	    DEBUG_FLAGS = '-g'
+        TARGET_ENV="${params.TARGET_ENV}"
+        VERSION='1.0'
+        }
+   tools{
+    maven 'maven3'
+}
+      stages{
+          stage("GitCheckout"){
+		  when {
+                expression { params.PHASE == 'BUILD' || params.PHASE == 'BUILD-ONLY' }
+		  } 
+            steps{   
+               checkout([$class: 'GitSCM', 
+               branches: [[name: '*/${BRANCH_NAME}']],
+               doGenerateSubmoduleConfigurations: false, 
+               extensions: [], submoduleCfg: [], 
+               userRemoteConfigs: [[credentialsId: 'Chandra-pipline-aditya', 
+               url: '${GIT_REPO}']]])
+		 }
+     }
+ 
+            stage("build"){
+			when {
+                expression { params.PHASE == 'BUILD' || params.PHASE == 'BUILD-ONLY' }
+		  } 
+               steps{
+                 sh ''' 
+                 ls -tlr
+                 VERSION=`git rev-parse HEAD`
+                 IMAGE_NAME="${IMAGE_BASE}/$NAME"
+                 echo "Building docker image for front end "
+                  sudo docker build -t $IMAGE_NAME:$VERSION .
+                  echo " pushing the image azure repo"
+                  sudo docker login adopdemointernal.azurecr.io -u adopdemointernal -p Ihzyu2uBPq5bh4w=MpaNSSAM+h2cEkrL
+		  sudo docker push $IMAGE_NAME:$VERSION
+                  echo "Push complete!"
+                  echo ""
+                  echo "Removing image from Jenkins server..."
+                  sudo docker rmi $IMAGE_NAME:$VERSION
+                  echo "Image removed!"
+                  echo ""
+                  echo "Logging out of Azure..."
+                  sudo docker logout adopdemointernal.azurecr.io
+                  echo "Log out successful!"
+                  echo ""
+                  '''
+                 }
+            }
+       stage("SonarScan"){ 
+             when {
+	             expression { params.PHASE == 'BUILD' || params.PHASE == 'SONAR' }
+		   }  
+          steps {
+	        script {
+            def scannerHome = tool 'SonarQubeScanner';
+            withSonarQubeEnv('Sonar') {
+            dir (''){
+                sh ' /var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/SonarQubeScanner/bin/sonar-scanner \
+                    -Dsonar.projectName=front-end  '
+                
+            }
+            }
+        }
+                
+       }
+   }
+        
+     stage("Container Registry")
+       {
+	 when {
+                expression { params.PHASE == 'BUILD' || params.PHASE == 'NEXUS' }
+		  } 
+		  
+            steps{
+               
+                sh 'pwd && ls -ltr '
+                 echo "Image already been uploaded to Azure container registry during the build stage"
+               
+            }
+        }
+     stage("Deploy"){
+	when {
+                expression { params.PHASE == 'BUILD' || params.PHASE == 'DEPLOY-ONLY' }
+		  } 
+	    //agent {   label "ec2-34-244-198-95.eu-west-1.compute.amazonaws.com" }
+		          steps{
+              echo "*************Deploy-Dev******************"
+           sh '''
+           VERSION=`git rev-parse HEAD`
+		   echo $VERSION
+           IMAGE_NAME="${IMAGE_BASE}/$NAME"
+		    sudo docker login adopdemointernal.azurecr.io -u adopdemointernal -p Ihzyu2uBPq5bh4w=MpaNSSAM+h2cEkrL
+		    if [[ $(kubectl get deployment  | grep "$CONTAINER_NAME" | cut -d' ' -f1) == $CONTAINER_NAME ]]; then
+		   	echo "This component has already been deployed. Starting rolling update to version $VERSION..."
+			sudo kubectl set image deployments $CONTAINER_NAME $CONTAINER_NAME=$IMAGE_NAME:$VERSION
+			echo "The last 3 revisions for $CONTAINER_NAME are listed below:"
+			sudo kubectl rollout history deployment $CONTAINER_NAME 
+		else 
+			echo "This component has not been deployed. Starting deployment..."
+			VERSION=`git rev-parse HEAD` envsubst <$NAME-component.tmpl> $NAME-component.yaml
+			sudo kubectl create -f $NAME-component.yaml --record
+		 fi
+
+		if [[ $(kubectl get svc $CONTAINER_NAME | grep "$CONTAINER_NAME*" | cut -d' ' -f1) == $CONTAINER_NAME ]]; then
+			echo "The service for this component has already been deployed." 
+			else 
+			echo "This component has not been deployed. Starting deployment..."
+			sudo kubectl create -f $NAME-service.yaml --record 
+	   fi
+           sudo docker logout adopdemointernal.azurecr.io
+        sleep 1m
+
+        echo "The following deployments are active:"
+        sudo kubectl get deployments
+
+        echo "The following pods have been deployed:"
+        sudo kubectl get pods
+
+        echo "Image has been pulled from Azure Registry"
+        kubectl describe pod $CONTAINER_NAME |grep Image:
+               '''
+           
+          }  
+     }   
+  }
+}	
+	
+    
+	
